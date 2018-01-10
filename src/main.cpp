@@ -65,14 +65,17 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
   return result;
 }
 
-int main() {
+int main()
+{
   uWS::Hub h;
 
   // MPC is initialized here!
   MPC mpc;
+  const int deg = 3;
 
   h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
-                     uWS::OpCode opCode) {
+                     uWS::OpCode opCode)
+  {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
     // The 2 signifies a websocket event
@@ -92,14 +95,32 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
+          Eigen::VectorXd x_vals(ptsx.size());
+          Eigen::VectorXd y_vals(ptsy.size());
+          for(size_t i=0; i<ptsx.size(); ++i)
+          {
+            x_vals[i] = ptsx[i];
+            y_vals[i] = ptsy[i];
+          }
+          Eigen::VectorXd coeffs = polyfit(x_vals, y_vals, deg);
+          std::cerr << "\nCoefficients: " << coeffs << std::endl;
+          // State
+          double cte = polyeval(coeffs, -1) - py;
+          double epsi = psi - atan(coeffs[1]);
+          Eigen::VectorXd state(6);
+          state << px, py, psi, v, cte, epsi;
+          vector<double> mpc_result = mpc.Solve(state, coeffs);
+          //for(auto it = mpc_result.cbegin(), end = mpc_result.cend(); it != end; ++it)
+          //  std::cerr << *it << "\n";
+
           /*
           * TODO: Calculate steering angle and throttle using MPC.
           *
           * Both are in between [-1, 1].
           *
           */
-          double steer_value;
-          double throttle_value;
+          double steer_value = mpc_result[0];
+          double throttle_value = mpc_result[1];
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
