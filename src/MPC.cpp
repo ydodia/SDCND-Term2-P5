@@ -5,30 +5,6 @@
 
 using CppAD::AD;
 
-// TODO: Set the timestep length and duration
-size_t N = 25;
-double dt = 0.2;
-
-// This value assumes the model presented in the classroom is used.
-//
-// It was obtained by measuring the radius formed by running the vehicle in the
-// simulator around in a circle with a constant steering angle and velocity on a
-// flat terrain.
-//
-// Lf was tuned until the the radius formed by the simulating the model
-// presented in the classroom matched the previous radius.
-//
-// This is the length from front to CoG that has a similar radius.
-const double Lf = 2.67;
-const size_t x_start 		= 0;
-const size_t y_start 		= N;
-const size_t psi_start 	= 2*N;
-const size_t v_start 		= 3*N;
-const size_t cte_start 	= 4*N;
-const size_t epsi_start 	= 5*N;
-const size_t delta_start 	= 6*N;
-const size_t a_start 		= delta_start + N - 1;
-
 
 class FG_eval
 {
@@ -46,20 +22,31 @@ public:
     // `fg` a vector of the cost constraints, `vars` is a vector of variable values (state & actuators)
     // NOTE: You'll probably go back and forth between this function and
     // the Solver function below.
-    fg[0] = 0;
+    fg[0] = 0.0;
     // build up the cost
     for(size_t t=0; t<N; ++t)
     {
       fg[0] += CppAD::pow(vars[cte_start + t] , 2);
-      fg[0] += CppAD::pow(vars[epsi_start + t], 2);
-      fg[0] += CppAD::pow(vars[v_start + t], 2);
+      fg[0] += 100*CppAD::pow(vars[epsi_start + t], 2);
+      fg[0] += 100*CppAD::pow(vars[v_start + t] - v_ref, 2);
     }
-    fg[1 + x_start] = vars[x_start];
-    fg[1 + y_start] = vars[y_start];
-    fg[1 + psi_start] = vars[psi_start];
-    fg[1 + v_start] = vars[v_start];
-    fg[1 + cte_start] = vars[cte_start];
-    fg[1 + epsi_start] = vars[epsi_start];
+    for(size_t t=0; t<N-1; ++t)
+    {
+      fg[0] += 4000*CppAD::pow(vars[delta_start + t], 2);
+      fg[0] += 1500*CppAD::pow(vars[a_start + t], 2);
+    }
+    for(size_t t=0; t<N-2; ++t)
+    {
+      fg[0] += CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+      fg[0] += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+    }
+    // initial values
+    fg[1 + x_start]     = vars[x_start];
+    fg[1 + y_start]     = vars[y_start];
+    fg[1 + psi_start]   = vars[psi_start];
+    fg[1 + v_start]     = vars[v_start];
+    fg[1 + cte_start]   = vars[cte_start];
+    fg[1 + epsi_start]  = vars[epsi_start];
     for(size_t t=1; t<N; ++t)
     {
       // state
@@ -82,15 +69,15 @@ public:
       AD<double> cte1   = vars[cte_start    + t];
       AD<double> epsi1  = vars[epsi_start   + t];
 
-      AD<double> f0 = coeffs[0] + coeffs[1] * x0;
-      AD<double> psides0 = CppAD::atan(coeffs[1]);
+      AD<double> f0 = coeffs[0] + coeffs[1]*x0 + coeffs[2]*CppAD::pow(x0, 2) + coeffs[3]*CppAD::pow(x0, 3);
+      AD<double> psides0 = CppAD::atan(coeffs[1] + 2.0*coeffs[2]*x0 + 3.0*coeffs[3]*CppAD::pow(x0, 2));
 
       // store the change
-      fg[1 + x_start + t]     = x1 - x0 + v0*CppAD::cos(psi0)*dt;
-      fg[1 + y_start + t]     = y1 - y0 + v0*CppAD::sin(psi0)*dt;
-      fg[1 + psi_start + t]   = psi1 - psi0 + v0*delta0/Lf*dt;
-      fg[1 + v_start + t]     = v1 - v0 + a0*dt;
-      fg[1 + cte_start + t]   = cte1 - ((f0 - y0) + (v0 * CppAD::sin(epsi0) * dt));
+      fg[1 + x_start + t]     = x1    - (x0 + v0*CppAD::cos(psi0)*dt);
+      fg[1 + y_start + t]     = y1    - (y0 + v0*CppAD::sin(psi0)*dt);
+      fg[1 + psi_start + t]   = psi1  - (psi0 + v0*delta0/Lf*dt);
+      fg[1 + v_start + t]     = v1    - (v0 + a0*dt);
+      fg[1 + cte_start + t]   = cte1  - ((f0 - y0) + (v0 * CppAD::sin(epsi0) * dt));
       fg[1 + epsi_start + t]  = epsi1 - ((psi0 - psides0) + v0 * delta0 / Lf * dt);
     }
   }
@@ -99,7 +86,11 @@ public:
 //
 // MPC class definition implementation.
 //
-MPC::MPC() {}
+MPC::MPC()
+{
+  x = std::vector<double>(N, 0);
+  y = std::vector<double>(N, 0);
+}
 MPC::~MPC() {}
 
 vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
@@ -108,9 +99,9 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   typedef CPPAD_TESTVECTOR(double) Dvector;
 
   size_t n_state = state.size();
-  size_t n_act = 2;
-  size_t n_vars = n_state*N + n_act*(N-1);
-  size_t n_constraints = n_state*N;
+  const size_t n_actuators = 2;
+  const size_t n_vars = n_state*N + n_actuators*(N-1);
+  const size_t n_constraints = n_state*N;
 
   // Initial value of the independent variables.
   // SHOULD BE 0 besides initial state.
@@ -130,8 +121,8 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   Dvector vars_upperbound(n_vars);
   for(size_t i=0; i<delta_start; ++i)
   {
-    vars_lowerbound[i] = std::numeric_limits<double>::min();
-    vars_upperbound[i] = std::numeric_limits<double>::max();
+    vars_lowerbound[i] = -1.0e19;//std::numeric_limits<double>::min();
+    vars_upperbound[i] = 1.0e19;//std::numeric_limits<double>::max();
   }
   for(size_t i=delta_start; i<a_start; ++i)
   {
@@ -149,8 +140,8 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   Dvector constraints_upperbound(n_constraints);
   for (size_t i = 0; i < n_constraints; i++)
   {
-    constraints_lowerbound[i] = 0;
-    constraints_upperbound[i] = 0;
+    constraints_lowerbound[i] = 0.0;
+    constraints_upperbound[i] = 0.0;
   }
   constraints_lowerbound[x_start]     = state[0];
   constraints_upperbound[x_start]     = state[0];
@@ -200,12 +191,19 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   // Cost
   auto cost = solution.obj_value;
   std::cout << "Cost " << cost << std::endl;
-  std::cerr << "Size of solution.x vector: " << solution.x.size() << "\n";
+  //std::cerr << "Size of solution.x vector: " << solution.x.size() << "\n";
 
   // TODO: Return the first actuator values. The variables can be accessed with
   // `solution.x[i]`.
   //
   // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
   // creates a 2 element double vector.
+  //std::cerr << "delta: "  << solution.x[delta_start]  << "\n";
+  //std::cerr << "a: "      << solution.x[a_start]      << "\n";
+  for(size_t i=0; i<N; ++i)
+  {
+    x[i] = solution.x[x_start + i];
+    y[i] = solution.x[y_start + i];
+  }
   return {solution.x[delta_start], solution.x[a_start]};
 }
