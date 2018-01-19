@@ -5,6 +5,8 @@
 
 using CppAD::AD;
 
+double v_ref = 75.0;
+vector<double> weights;
 
 class FG_eval
 {
@@ -26,19 +28,20 @@ public:
     // build up the cost
     for(size_t t=0; t<N; ++t)
     {
-      fg[0] += CppAD::pow(vars[cte_start + t] , 2);
-      fg[0] += 100*CppAD::pow(vars[epsi_start + t], 2);
-      fg[0] += 100*CppAD::pow(vars[v_start + t] - v_ref, 2);
+      fg[0] += weights[0]*CppAD::pow(vars[cte_start + t] , 2);
+      fg[0] += weights[1]*CppAD::pow(vars[epsi_start + t], 2);
+      fg[0] += weights[2]*CppAD::pow(vars[v_start + t] - v_ref*0.44704, 2);
     }
     for(size_t t=0; t<N-1; ++t)
     {
-      fg[0] += 4000*CppAD::pow(vars[delta_start + t], 2);
-      fg[0] += 1500*CppAD::pow(vars[a_start + t], 2);
+      fg[0] += weights[3]*CppAD::pow(vars[delta_start + t], 2);
+      fg[0] += weights[4]*CppAD::pow(vars[a_start + t], 2);
+      fg[0] += weights[7]*CppAD::pow(vars[delta_start + t] * vars[v_start + t], 2);
     }
     for(size_t t=0; t<N-2; ++t)
     {
-      fg[0] += CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
-      fg[0] += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+      fg[0] += weights[5]*CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+      fg[0] += weights[6]*CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
     }
     // initial values
     fg[1 + x_start]     = vars[x_start];
@@ -90,6 +93,15 @@ MPC::MPC()
 {
   x = std::vector<double>(N, 0);
   y = std::vector<double>(N, 0);
+  weights = std::vector<double>(n_weights, 0);
+  weights[0] = 100;//100; // [cte_start + t]
+  weights[1] = 10;//4500; // [epsi_start + t]
+  weights[2] = 11; // [v_start + t] - v_ref
+  weights[3] = 50; // [delta_start + t]
+  weights[4] = 1; // [a_start + t]
+  weights[5] = 25;//6000; // [delta_start + t + 1] - [delta_start + t]
+  weights[6] = 10; // [a_start + t + 1] - [a_start + t]
+  weights[7] = 150; // [delta_start + t] * [v_start + t]
 }
 MPC::~MPC() {}
 
@@ -189,8 +201,8 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
 
   // Cost
-  auto cost = solution.obj_value;
-  std::cout << "Cost " << cost << std::endl;
+  //auto cost = solution.obj_value;
+  //std::cout << "Cost " << cost << std::endl;
   //std::cerr << "Size of solution.x vector: " << solution.x.size() << "\n";
 
   // TODO: Return the first actuator values. The variables can be accessed with
@@ -205,5 +217,6 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
     x[i] = solution.x[x_start + i];
     y[i] = solution.x[y_start + i];
   }
-  return {solution.x[delta_start], solution.x[a_start]};
+  int offset = static_cast<int>(delay/dt);
+  return {solution.x[delta_start + offset], solution.x[a_start + offset]};
 }

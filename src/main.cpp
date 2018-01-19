@@ -9,6 +9,8 @@
 #include "MPC.h"
 #include "json.hpp"
 
+#define OPTIMIZE
+
 // for convenience
 using json = nlohmann::json;
 
@@ -65,14 +67,39 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
   return result;
 }
 
+#ifdef OPTIMIZE
+void print_weights(const MPC& mpc, const int& steps)
+{
+  std::cerr << "Current weights are:\n";
+  std::cerr << "[cte_start + t] = "                             << weights[0] << "\n";
+  std::cerr << "[epsi_start + t] = "                            << weights[1] << "\n";
+  std::cerr << "[v_start + t] - v_ref = "                       << weights[2] << "\n";
+  std::cerr << "[delta_start + t] = "                           << weights[3] << "\n";
+  std::cerr << "[a_start + t] = "                               << weights[4] << "\n";
+  std::cerr << "[delta_start + t + 1] - [delta_start + t] = "   << weights[5] << "\n";
+  std::cerr << "[a_start + t + 1] - [a_start + t] = "           << weights[6] << "\n";
+  std::cerr << "[delta_start + t] * [v_start + t] = "           << weights[7] << "\n";
+  std::cerr << "steps = "                                       << steps << "\n";
+  std::cerr << "v_ref = "                                       << v_ref << std::endl;
+}
+#endif
+
 int main()
 {
   uWS::Hub h;
 
   // MPC is initialized here!
   MPC mpc;
+#ifdef OPTIMIZE
+  std::cerr << "T = " << N*dt << "s, N = " << N << ", dt = " << dt << "\n";
+  size_t steps = 100;
+  size_t counter = steps;
+  double sum_cte = 0;
+  double avg_speed = 0;
+  double prev_MSE = 999999999;
+#endif
 
-  h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode)
   {
     // "42" at the start of the message means there's a websocket message event.
@@ -89,12 +116,16 @@ int main()
           // j[1] is the data JSON object
           vector<double> ptsx = j[1]["ptsx"];
           vector<double> ptsy = j[1]["ptsy"];
-          double px     = j[1]["x"];
-          double py     = j[1]["y"];
-          double psi    = j[1]["psi"];
-          double v      = j[1]["speed"];
-          double delta  = -1.0 * static_cast<double>(j[1]["steering_angle"]);
-          double a      = j[1]["throttle"];
+          double px           = j[1]["x"];
+          double py           = j[1]["y"];
+          double psi          = j[1]["psi"];
+          double v            = j[1]["speed"];
+#ifdef OPTIMIZE
+          avg_speed          += v;
+#endif
+          v                  *= 0.44704; // now m/s from mph
+          double steer_angle  = -static_cast<double>(j[1]["steering_angle"]);
+          double a            = j[1]["throttle"];
 
           // coord conversion to car's reference
           for(size_t i=0; i<ptsx.size(); ++i)
@@ -107,24 +138,90 @@ int main()
           double* p_xvec = ptsx.data();
           double* p_yvec = ptsy.data();
           Eigen::Map<Eigen::VectorXd> ptsx_veh(p_xvec, ptsx.size());
-          Eigen::Map<Eigen::VectorXd> ptsy_veh(p_yvec, ptsy.size());
+          Eigen::Map<Eigen::VectorXd> ptsy_veh(p_yvec, ptsx.size());
           // fit 3rd-deg poly
           Eigen::VectorXd coeffs = polyfit(ptsx_veh, ptsy_veh, 3);
 
-          // State with 100ms delay
+          // State with delay
           double cte = coeffs[0];
+          sum_cte += abs(cte);
+          //std::cerr << "CTE^2: " << cte*cte << "\n";
           double epsi = -atan(coeffs[1]);
           Eigen::VectorXd state(6);
-          double delay = 0.05;
+          psi   = v*steer_angle/Lf*delay;
           double x_   = v*cos(psi)*delay;
           double y_   = v*sin(psi)*delay;
-          double psi_ = v*delta/Lf*delay;
           v     += a*delay;
           cte   += v*sin(epsi)*delay;
-          epsi  += v*delta/Lf*delay;
+          epsi  += v*steer_angle/Lf*delay;
 
 
-          state << x_, y_, psi_, v, cte, epsi;
+          state << x_, y_, psi, v, cte, epsi;
+
+
+
+
+#ifdef OPTIMIZE
+  ++counter;
+  if(counter >= steps)
+  {
+    // RESET
+    avg_speed /= counter;
+    double current_MSE = sum_cte/static_cast<double>(counter);
+    std::cerr << "MSE CTE: " << current_MSE << std::endl;
+    printf("AVG speed: %3.0f mph.\n", avg_speed);
+    std::string msg = "42[\"reset\",{}]";
+    ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
+    print_weights(mpc, steps);
+    //
+    printf("MSE diff: %+3.2f %% \n", 100*(current_MSE - prev_MSE)/prev_MSE);
+    int idx;
+    std::cout << "Which value would you like to change?\n";
+    std::cout << "0 : \t[cte_start + t]\n"
+        << "1 : \t[epsi_start + t]\n"
+        << "2 : \t[v_start + t] - v_ref\n"
+        << "3 : \t[delta_start + t]\n"
+        << "4 : \t[a_start + t]\n"
+        << "5 : \t[delta_start + t + 1] - [delta_start + t]\n"
+        << "6 : \t[a_start + t + 1] - [a_start + t]\n"
+        << "7 : \t[delta_start + t] * [v_start + t]\n"
+        << "8 : \tsteps\n"
+        << "9 : \tv_ref\n"
+        << ": ";
+    std::cin >> idx;
+    while (idx < 0 || idx > 9)
+    {
+      std::cout << "Wrong index. Try again!" << ": ";
+      std::cin >> idx;
+    }
+    double old_val;
+    if (idx < 8)
+      old_val = weights[idx];
+    if(idx == 8)
+      old_val = steps;
+    if(idx == 9)
+      old_val = v_ref;
+    std::cout << "Old value: " << old_val << "\n";
+    double val;
+    std::cout << "New value: ";
+    std::cin >> val;
+    while (val < 0.0)
+    {
+      std::cout << "Invalid. Try again!" << ": ";
+      std::cin >> val;
+    }
+    if (idx < 8)
+      weights[idx] = val;
+    if(idx == 8)
+      steps = static_cast<int>(val);
+    if(idx == 9)
+      v_ref = val;
+    prev_MSE = current_MSE;
+    sum_cte = 0;
+    counter = 0;
+    avg_speed = 0;
+  }
+#endif
           vector<double> mpc_result = mpc.Solve(state, coeffs);
           //for(auto it = mpc_result.cbegin(), end = mpc_result.cend(); it != end; ++it)
           //  std::cerr << *it << "\n";
