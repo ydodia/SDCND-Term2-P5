@@ -20,7 +20,7 @@ const size_t cte_start    = v_start + N;
 const size_t epsi_start   = cte_start + N;
 const size_t delta_start  = epsi_start + N;
 const size_t a_start      = delta_start + N - 1;
-extern double v_ref; // km/h
+extern double v_ref; // mph
 extern vector<double> weights;
 
 class MPC
