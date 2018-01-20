@@ -91,31 +91,15 @@ public:
 //
 MPC::MPC()
 {
-  /*
-   * MSE CTE: 0.653984
-AVG speed:  74 mph.
-Current weights are:
-[cte_start + t] = 400
-[epsi_start + t] = 10
-[v_start + t] - v_ref = 20
-[delta_start + t] = 25
-[a_start + t] = 1
-[delta_start + t + 1] - [delta_start + t] = 500
-[a_start + t + 1] - [a_start + t] = 0.5
-[delta_start + t] * [v_start + t] = 6000
-steps = 300
-v_ref = 125
-   */
-
   x = std::vector<double>(N, 0);
   y = std::vector<double>(N, 0);
   weights = std::vector<double>(n_weights, 0);
-  weights[0] = 400;//100; // [cte_start + t]
-  weights[1] = 10;//4500; // [epsi_start + t]
+  weights[0] = 400; // [cte_start + t]
+  weights[1] = 10; // [epsi_start + t]
   weights[2] = 20; // [v_start + t] - v_ref
   weights[3] = 25; // [delta_start + t]
-  weights[4] = 1; // [a_start + t]
-  weights[5] = 500;//6000; // [delta_start + t + 1] - [delta_start + t]
+  weights[4] = 1;   // [a_start + t]
+  weights[5] = 500; // [delta_start + t + 1] - [delta_start + t]
   weights[6] = 0.5; // [a_start + t + 1] - [a_start + t]
   weights[7] = 6000; // [delta_start + t] * [v_start + t]
 }

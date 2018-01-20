@@ -9,7 +9,7 @@
 #include "MPC.h"
 #include "json.hpp"
 
-#define OPTIMIZE
+//#define OPTIMIZE
 
 // for convenience
 using json = nlohmann::json;
@@ -92,7 +92,7 @@ int main()
   MPC mpc;
 #ifdef OPTIMIZE
   std::cerr << "T = " << N*dt << "s, N = " << N << ", dt = " << dt << "\n";
-  size_t steps = 100;
+  size_t steps = 300;
   size_t counter = steps;
   double sum_cte = 0;
   double avg_speed = 0;
@@ -144,7 +144,9 @@ int main()
 
           // State with delay
           double cte = coeffs[0];
+#ifdef OPTIMIZE
           sum_cte += abs(cte);
+#endif
           //std::cerr << "CTE^2: " << cte*cte << "\n";
           double epsi = -atan(coeffs[1]);
           Eigen::VectorXd state(6);
