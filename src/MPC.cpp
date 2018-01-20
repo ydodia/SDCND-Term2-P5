@@ -94,14 +94,14 @@ MPC::MPC()
   x = std::vector<double>(N, 0);
   y = std::vector<double>(N, 0);
   weights = std::vector<double>(n_weights, 0);
-  weights[0] = 100;//100; // [cte_start + t]
+  weights[0] = 250;//100; // [cte_start + t]
   weights[1] = 10;//4500; // [epsi_start + t]
-  weights[2] = 11; // [v_start + t] - v_ref
-  weights[3] = 50; // [delta_start + t]
+  weights[2] = 20; // [v_start + t] - v_ref
+  weights[3] = 25; // [delta_start + t]
   weights[4] = 1; // [a_start + t]
-  weights[5] = 25;//6000; // [delta_start + t + 1] - [delta_start + t]
-  weights[6] = 10; // [a_start + t + 1] - [a_start + t]
-  weights[7] = 150; // [delta_start + t] * [v_start + t]
+  weights[5] = 700;//6000; // [delta_start + t + 1] - [delta_start + t]
+  weights[6] = 0.5; // [a_start + t + 1] - [a_start + t]
+  weights[7] = 2000; // [delta_start + t] * [v_start + t]
 }
 MPC::~MPC() {}
 
